@@ -1,0 +1,11 @@
+# Node.js
+node_modules/
+.env*
+npm-debug.log*
+yarn-debug.log*
+.eslintcache
+.node_repl_history
+
+# Logs
+logs/
+*.log
