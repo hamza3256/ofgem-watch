@@ -10,7 +10,8 @@
  * - Valid Resend API key and verified sender email
  * 
  * Usage:
- * Set environment variables: RESEND_API_KEY, NOTIFY_EMAIL, SENDER_EMAIL
+ * Set environment variables: RESEND_API_KEY, NOTIFY_EMAILS, SENDER_EMAIL
+ * NOTIFY_EMAILS should be comma-separated (e.g., "email1@example.com,email2@example.com")
  * Run: node ofgem-poll.js
  * 
  * @author Muhammad Hamza
@@ -33,14 +34,15 @@ const CONFIG = {
 
 const ENV = {
   resendApiKey: process.env.RESEND_API_KEY,
-  notifyEmail: process.env.NOTIFY_EMAIL,
+  notifyEmails: process.env.NOTIFY_EMAILS ? process.env.NOTIFY_EMAILS.split(',').map(email => email.trim()) : [],
   senderEmail: process.env.SENDER_EMAIL
 };
 
 // Validate required configuration
-if (!ENV.resendApiKey || !ENV.notifyEmail || !ENV.senderEmail) {
+if (!ENV.resendApiKey || ENV.notifyEmails.length === 0 || !ENV.senderEmail) {
   console.error('❌ Configuration Error: Missing required environment variables');
-  console.error('   Required: RESEND_API_KEY, NOTIFY_EMAIL, SENDER_EMAIL');
+  console.error('   Required: RESEND_API_KEY, NOTIFY_EMAILS, SENDER_EMAIL');
+  console.error('   NOTIFY_EMAILS should be comma-separated (e.g., "email1@example.com,email2@example.com")');
   process.exit(1);
 }
 
@@ -110,14 +112,14 @@ const fetchLatestPublication = async () => {
 };
 
 /**
- * Sends email notification for new publication
+ * Sends email notification for new publication to multiple recipients
  * @param {Object} publication - Publication details
  */
 const sendNotification = async (publication) => {
   try {
     const { data, error } = await resend.emails.send({
       from: ENV.senderEmail,
-      to: ENV.notifyEmail,
+      to: ENV.notifyEmails,
       subject: '📢 New Ofgem Publication Available',
       html: `
         <h2>New Ofgem Publication Detected</h2>
@@ -134,7 +136,7 @@ const sendNotification = async (publication) => {
       throw new Error(error.message);
     }
     
-    console.log('✅ Email notification sent successfully');
+    console.log(`✅ Email notification sent successfully to ${ENV.notifyEmails.length} recipient(s)`);
     
   } catch (error) {
     console.error('❌ Email notification failed:', error.message);
@@ -176,7 +178,7 @@ const pollForUpdates = async () => {
 
 // Application startup
 console.log('🚀 Starting Ofgem Publication Monitor');
-console.log(`📧 Notifications will be sent to: ${ENV.notifyEmail}`);
+console.log(`📧 Notifications will be sent to: ${ENV.notifyEmails.join(', ')}`);
 console.log(`⏱️  Polling interval: ${CONFIG.pollInterval / 1000} seconds`);
 console.log('─'.repeat(50));
 
