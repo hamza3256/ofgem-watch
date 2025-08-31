@@ -9,3 +9,5 @@ yarn-debug.log*
 # Logs
 logs/
 *.log
+
+last_ofgem_publication.json

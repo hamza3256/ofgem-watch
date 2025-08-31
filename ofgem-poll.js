@@ -1,200 +1,208 @@
-const fetch = require('node-fetch');
-const cheerio = require('cheerio');
+/**
+ * Ofgem Publication Monitor
+ * 
+ * Monitors the Ofgem website for new publications and sends email notifications
+ * when new content is detected. Uses web scraping to check the latest publication
+ * and maintains state to avoid duplicate notifications.
+ * 
+ * Requirements:
+ * - Node.js with puppeteer, resend packages
+ * - Valid Resend API key and verified sender email
+ * 
+ * Usage:
+ * Set environment variables: RESEND_API_KEY, NOTIFY_EMAIL, SENDER_EMAIL
+ * Run: node ofgem-poll.js
+ * 
+ * @author Muhammad Hamza
+ * @version 1.0.0
+ */
+
+require('dotenv').config();
 const fs = require('fs');
 const { Resend } = require('resend');
 const puppeteer = require('puppeteer');
-const { URL } = require('url');
 
-// configs
-const baseUrlString = 'https://www.ofgem.gov.uk/search?sort=field_published&direction=desc';
-const POLL_INTERVAL = 5 * 60 * 1000; // poll every 5 mins
-const STATE_FILE = 'last_ofgem_pub.json';
+// Configuration
+const CONFIG = {
+  baseUrl: 'https://www.ofgem.gov.uk/search?sort=field_published&direction=desc',
+  pollInterval: 5 * 60 * 1000, // 5 minutes
+  stateFile: 'last_ofgem_publication.json',
+  browserTimeout: 30000,
+  selectorTimeout: 10000
+};
 
-const RESEND_API_KEY = 'YOUR_RESEND_API_KEY'; 
-const NOTIFY_EMAIL = 'YOUR_NOTIFICATION_EMAIL'; 
-const SENDER_EMAIL = 'Ofgem Watch <YOUR_VERIFIED_SENDER_EMAIL>';
+const ENV = {
+  resendApiKey: process.env.RESEND_API_KEY,
+  notifyEmail: process.env.NOTIFY_EMAIL,
+  senderEmail: process.env.SENDER_EMAIL
+};
 
-if (!RESEND_API_KEY || !NOTIFY_EMAIL || !SENDER_EMAIL) {
-  console.error('FATAL ERROR: Please check your configs: RESEND_API_KEY; NOTIFY_EMAIL; SENDER_EMAIL.');
+// Validate required configuration
+if (!ENV.resendApiKey || !ENV.notifyEmail || !ENV.senderEmail) {
+  console.error('❌ Configuration Error: Missing required environment variables');
+  console.error('   Required: RESEND_API_KEY, NOTIFY_EMAIL, SENDER_EMAIL');
   process.exit(1);
 }
 
-const resend = new Resend(RESEND_API_KEY);
+const resend = new Resend(ENV.resendApiKey);
 
-function getLastSeen() {
+// State management utilities
+const loadState = () => {
   try {
-    if (fs.existsSync(STATE_FILE)) {
-      const data = fs.readFileSync(STATE_FILE, 'utf8');
-      const parsedData = JSON.parse(data);
-      if (typeof parsedData === 'object' && parsedData !== null) {
-        console.log('INFO: Loaded last seen data from', STATE_FILE);
-        return parsedData;
-      } else {
-        console.warn('WARN: Invalid data format in state file. Starting fresh.');
-        return null;
-      }
-    }
+    return fs.existsSync(CONFIG.stateFile) 
+      ? JSON.parse(fs.readFileSync(CONFIG.stateFile, 'utf8')) 
+      : null;
   } catch (error) {
-    console.error('ERROR: Failed to read state file:', error);
+    console.warn('⚠️  State file corrupted, starting fresh');
     return null;
   }
-  console.log('INFO: No state file found. Starting fresh.');
-  return null;
-}
+};
 
-function setLastSeen(data) {
+const saveState = (data) => {
   try {
-    fs.writeFileSync(STATE_FILE, JSON.stringify(data, null, 2), 'utf8');
-    console.log('INFO: Saved last seen data to', STATE_FILE);
+    fs.writeFileSync(CONFIG.stateFile, JSON.stringify(data, null, 2));
   } catch (error) {
-    console.error('ERROR: Failed to write state file:', error);
+    console.error('❌ Failed to save state:', error.message);
   }
-}
+};
 
-async function fetchLatestPublication() {
-  let browser;
+/**
+ * Fetches the latest publication from Ofgem website
+ * @returns {Promise<Object|null>} Publication object or null if failed
+ */
+const fetchLatestPublication = async () => {
+  const browser = await puppeteer.launch({ 
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
+  
   try {
-    console.log(`INFO: Launching browser and navigating to ${baseUrlString}`);
-    browser = await puppeteer.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
     const page = await browser.newPage();
-    await page.setDefaultNavigationTimeout(60000);
+    await page.goto(CONFIG.baseUrl, { 
+      waitUntil: 'networkidle2', 
+      timeout: CONFIG.browserTimeout 
+    });
+    
+    // Wait for content to load
+    await page.waitForSelector('article', { timeout: CONFIG.selectorTimeout });
 
-    // Wait for dynamic content to load
-    await page.goto(baseUrlString, { waitUntil: 'networkidle2' });
-    console.log('INFO: Page loaded. Extracting data...');
-
-    const articleSelector = 'article';
-    try {
-      await page.waitForSelector(articleSelector, { timeout: 10000 });
-    } catch (e) {
-      console.warn('WARN: Timeout waiting for article element. Page structure may have changed.');
-      return null;
-    }
-
-    // Extract publication data from the first article
-    const publicationData = await page.$eval(articleSelector, (articleElement) => {
-      const linkElem = articleElement.querySelector('a');
-      const relativeLink = linkElem ? linkElem.getAttribute('href') : null;
-
-      // Target specific nested span for title
-      const titleSpan = articleElement.querySelector('h3.text-fl-base.text-underline span span');
-      const title = titleSpan ? titleSpan.textContent.trim() : '';
-
-      // Find published date - complex DOM traversal due to structure
-      let date = '';
-      const fontBoldSpans = articleElement.querySelectorAll('span.font-bold');
+    // Extract publication details from first article
+    const publication = await page.$eval('article', (article) => {
+      const link = article.querySelector('a')?.href;
+      const title = article.querySelector('h3 span span')?.textContent?.trim();
       
-      for (const span of fontBoldSpans) {
-        if (span.textContent && span.textContent.includes('Published date:')) {
-          const timeElem = span.parentElement ? span.parentElement.querySelector('time') : null;
-          if (timeElem) {
-            date = timeElem.textContent.trim();
-          }
-          break;
-        }
-      }
+      // Find publication date
+      const dateSpan = [...article.querySelectorAll('span.font-bold')]
+        .find(span => span.textContent?.includes('Published date:'));
+      const date = dateSpan?.parentElement?.querySelector('time')?.textContent?.trim();
 
-      return { relativeLink, title, date };
+      return title && link ? { title, link, date: date || 'Unknown' } : null;
     });
 
-    const fullLink = publicationData.relativeLink
-      ? new URL(publicationData.relativeLink, baseUrlString).href
-      : '';
-
-    const latest = {
-      title: publicationData.title,
-      link: fullLink,
-      date: publicationData.date
-    };
-
-    // Essential data validation - prevent incomplete notifications
-    if (!latest.title || !latest.link) {
-      console.warn('WARN: Essential publication data missing.');
-      return null;
-    }
-
-    console.log('INFO: Successfully extracted publication data.');
-    console.log('DEBUG:', latest);
-    return latest;
-
+    return publication;
+    
   } catch (error) {
-    console.error('ERROR: Failed to fetch publication data:', error);
+    console.error('❌ Failed to fetch publication:', error.message);
     return null;
   } finally {
-    if (browser) {
-      await browser.close();
-    }
+    await browser.close();
   }
-}
+};
 
-async function sendEmail(pub) {
+/**
+ * Sends email notification for new publication
+ * @param {Object} publication - Publication details
+ */
+const sendNotification = async (publication) => {
   try {
-    if (!pub || !pub.title || !pub.link) {
-      console.warn('WARN: Cannot send email - incomplete publication data.');
-      return;
-    }
-
-    console.log(`INFO: Sending notification email to ${NOTIFY_EMAIL}...`);
     const { data, error } = await resend.emails.send({
-      from: SENDER_EMAIL,
-      to: NOTIFY_EMAIL,
-      subject: 'New Ofgem Publication Detected',
-      text: `Title: ${pub.title}\nDate: ${pub.date || 'Date not found'}\nLink: ${pub.link}\n\n---\nThis is an automated notification.`,
+      from: ENV.senderEmail,
+      to: ENV.notifyEmail,
+      subject: '📢 New Ofgem Publication Available',
+      html: `
+        <h2>New Ofgem Publication Detected</h2>
+        <p><strong>Title:</strong> ${publication.title}</p>
+        <p><strong>Published:</strong> ${publication.date}</p>
+        <p><strong>Link:</strong> <a href="${publication.link}">${publication.link}</a></p>
+        <hr>
+        <p><em>This is an automated notification from Ofgem Monitor.</em></p>
+      `,
+      text: `New Ofgem Publication\n\nTitle: ${publication.title}\nPublished: ${publication.date}\nLink: ${publication.link}\n\n---\nAutomated notification from Ofgem Monitor`
     });
 
     if (error) {
-      console.error('ERROR: Failed to send email:', error);
-    } else {
-      console.log('INFO: Notification email sent successfully.');
+      throw new Error(error.message);
     }
+    
+    console.log('✅ Email notification sent successfully');
+    
   } catch (error) {
-    console.error('ERROR: Unexpected error during email sending:', error);
+    console.error('❌ Email notification failed:', error.message);
   }
-}
+};
 
-async function poll() {
-  console.log(`INFO: Starting poll cycle at ${new Date().toISOString()}`);
+/**
+ * Main polling function - checks for new publications
+ */
+const pollForUpdates = async () => {
+  console.log(`🔍 Checking for updates... [${new Date().toLocaleString('en-GB')}]`);
+  
   try {
-    const latest = await fetchLatestPublication();
-    const lastSeen = getLastSeen();
-
-    if (!latest) {
-      console.log('INFO: No publication data fetched. Skipping comparison.');
+    const latestPublication = await fetchLatestPublication();
+    
+    if (!latestPublication) {
+      console.log('⚠️  No publication data retrieved');
       return;
     }
 
-    const latestIdentifier = `${latest.title}-${latest.link}`;
-    const lastSeenIdentifier = lastSeen ? `${lastSeen.title}-${lastSeen.link}` : null;
+    const previousPublication = loadState();
+    const currentId = `${latestPublication.title}|${latestPublication.link}`;
+    const previousId = previousPublication 
+      ? `${previousPublication.title}|${previousPublication.link}` 
+      : null;
 
-    if (!lastSeenIdentifier || latestIdentifier !== lastSeenIdentifier) {
-      console.log('INFO: New publication detected!');
-      console.log('DEBUG: Latest Publication:', latest);
-
-      await sendEmail(latest);
-      setLastSeen(latest);
+    if (currentId !== previousId) {
+      console.log('🆕 New publication detected:', latestPublication.title);
+      await sendNotification(latestPublication);
+      saveState(latestPublication);
     } else {
-      console.log('INFO: No new publication detected.');
+      console.log('✨ No new publications');
     }
-  } catch (err) {
-    console.error('FATAL: Uncaught error during polling cycle:', err);
-  } finally {
-    console.log(`INFO: Poll cycle finished at ${new Date().toISOString()}`);
+    
+  } catch (error) {
+    console.error('❌ Polling cycle failed:', error.message);
   }
-}
+};
 
-console.log(`INFO: Starting Ofgem publication watcher. Polling every ${POLL_INTERVAL / 1000} seconds.`);
+// Application startup
+console.log('🚀 Starting Ofgem Publication Monitor');
+console.log(`📧 Notifications will be sent to: ${ENV.notifyEmail}`);
+console.log(`⏱️  Polling interval: ${CONFIG.pollInterval / 1000} seconds`);
+console.log('─'.repeat(50));
 
-poll(); // Initial run
-setInterval(poll, POLL_INTERVAL);
+// Initial check
+pollForUpdates();
 
-// Graceful shutdown handlers
+// Set up recurring polling
+const pollInterval = setInterval(pollForUpdates, CONFIG.pollInterval);
+
+// Graceful shutdown handling
 const shutdown = () => {
-  console.log('INFO: Shutting down...');
+  console.log('\n🛑 Shutting down Ofgem Monitor...');
+  clearInterval(pollInterval);
   process.exit(0);
 };
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('💥 Uncaught Exception:', error.message);
+  shutdown();
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('💥 Unhandled Rejection:', reason);
+  shutdown();
+});
