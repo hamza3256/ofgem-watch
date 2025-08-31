@@ -1,4 +1,7 @@
 {
+  "name": "ofgem-watch",
+  "version": "1.0.0",
+  "main": "ofgem-poll.js",
   "scripts": {
   "start": "node ofgem-poll.js"
   },
