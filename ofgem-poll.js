@@ -305,8 +305,26 @@ const pollForUpdates = async () => {
 
     if (currentId !== previousId) {
       console.log('🆕 New publication detected:', latestPublication.title);
-      await sendNotification(latestPublication);
-      saveState(latestPublication);
+      
+      // Check if any of the target keywords are in the title
+      const titleLower = latestPublication.title.toLowerCase();
+      const hasTomato = titleLower.includes('tomato');
+      const hasSenapt = titleLower.includes('senapt');
+      const hasLogicor = titleLower.includes('logicor');
+      
+      if (hasTomato || hasSenapt || hasLogicor) {
+        console.log('🎯 Target keyword detected - sending notification!');
+        if (hasTomato) console.log('🍅 Tomato found');
+        if (hasSenapt) console.log('🔍 Senapt found');
+        if (hasLogicor) console.log('🏢 Logicor found');
+        await sendNotification(latestPublication);
+        saveState(latestPublication);
+      } else {
+        console.log('🚫 No target keywords found - skipping notification');
+        console.log('📝 Publication:', latestPublication.title);
+        // Still save the state to avoid re-checking the same publication
+        saveState(latestPublication);
+      }
     } else {
       console.log('✨ No new publications');
     }
