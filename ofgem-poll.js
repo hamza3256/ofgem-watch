@@ -383,17 +383,27 @@ const sendNotification = async (publication) => {
             }
             .cv-button { 
               display: inline-block; 
-              background: #2d3748; 
+              background: linear-gradient(45deg, #667eea, #764ba2, #f093fb, #f5576c, #4facfe, #00f2fe);
+              background-size: 300% 300%;
               color: white; 
               text-decoration: none; 
               padding: 10px 18px; 
               border-radius: 5px; 
               font-weight: 500; 
               font-size: 14px; 
-              transition: background-color 0.2s ease; 
+              transition: all 0.3s ease; 
+              animation: shimmer 3s ease-in-out infinite;
+              box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
             }
             .cv-button:hover { 
-              background: #4a5568; 
+              transform: translateY(-2px);
+              box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+              animation: shimmer 1.5s ease-in-out infinite;
+            }
+            @keyframes shimmer {
+              0% { background-position: 0% 50%; }
+              50% { background-position: 100% 50%; }
+              100% { background-position: 0% 50%; }
             }
             .footer { 
               background: #f7fafc; 
@@ -444,13 +454,13 @@ const sendNotification = async (publication) => {
               
               <div class="divider"></div>
               
-              <div class="cv-offer">
-                <h3>Got Laid Off? 😜</h3>
-                <p>Get your CV reviewed by an expert</p>
-                <a href="https://www.shazpay.link/pay/okXVhiSmdG" class="cv-button" target="_blank">
-                  Get Expert Review
-                </a>
-              </div>
+                <div class="cv-offer">
+                  <h3>Need a boost?</h3>
+                  <p>Quick motivation to power through your day</p>
+                  <a href="https://www.youtube.com/watch?v=dQw4w9WgXcQ" class="cv-button" target="_blank">
+                    Get Motivated
+                  </a>
+                </div>
             </div>
             
             <div class="footer">
