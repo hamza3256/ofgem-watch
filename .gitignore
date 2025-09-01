@@ -9,3 +9,6 @@ yarn-debug.log*
 # Logs
 logs/
 *.log
+
+# State management file: to prevent overriding server file
+last_ofgem_publication.json
