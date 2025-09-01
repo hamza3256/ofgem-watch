@@ -262,12 +262,208 @@ const sendNotification = async (publication) => {
       to: ENV.notifyEmails,
       subject: '📢 New Ofgem Publication Available',
       html: `
-        <h2>New Ofgem Publication Detected</h2>
-        <p><strong>Title:</strong> ${publication.title}</p>
-        <p><strong>Published:</strong> ${publication.date}</p>
-        <p><strong>Link:</strong> <a href="${publication.link}">${publication.link}</a></p>
-        <hr>
-        <p><em>This is an automated notification from Ofgem Monitor.</em></p>
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>New Ofgem Publication</title>
+          <style>
+            body { 
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+              line-height: 1.6; 
+              color: #2d3748; 
+              margin: 0; 
+              padding: 20px; 
+              background-color: #f7fafc; 
+            }
+            .container { 
+              max-width: 500px; 
+              margin: 0 auto; 
+              background: white; 
+              border-radius: 8px; 
+              box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); 
+              overflow: hidden; 
+            }
+            .header { 
+              background: #2d3748; 
+              color: white; 
+              padding: 24px; 
+              text-align: center; 
+            }
+            .header h1 { 
+              margin: 0; 
+              font-size: 20px; 
+              font-weight: 500; 
+              letter-spacing: -0.025em; 
+            }
+            .header p { 
+              margin: 8px 0 0 0; 
+              opacity: 0.8; 
+              font-size: 14px; 
+              font-weight: 400; 
+            }
+            .content { 
+              padding: 24px; 
+            }
+            .publication-title { 
+              font-size: 16px; 
+              font-weight: 600; 
+              color: #2d3748; 
+              margin-bottom: 16px; 
+              line-height: 1.5; 
+            }
+            .publication-meta { 
+              margin-bottom: 20px; 
+            }
+            .meta-item { 
+              display: flex; 
+              align-items: center; 
+              margin-bottom: 8px; 
+              font-size: 14px; 
+              color: #4a5568; 
+            }
+            .meta-label { 
+              font-weight: 500; 
+              color: #2d3748; 
+              min-width: 80px; 
+            }
+            .cta-button { 
+              display: block; 
+              background: #2d3748; 
+              color: white; 
+              text-decoration: none; 
+              padding: 16px 32px; 
+              border-radius: 8px; 
+              font-weight: 600; 
+              font-size: 16px; 
+              margin: 20px auto; 
+              text-align: center; 
+              max-width: 280px; 
+              transition: background-color 0.2s ease; 
+            }
+            .cta-button:hover { 
+              background: #4a5568; 
+            }
+            .divider { 
+              height: 1px; 
+              background: #e2e8f0; 
+              margin: 24px 0; 
+            }
+            .github-link { 
+              text-align: center; 
+              margin: 20px 0; 
+            }
+            .github-link a { 
+              color: #4a5568; 
+              text-decoration: none; 
+              font-size: 14px; 
+              transition: color 0.2s ease; 
+            }
+            .github-link a:hover { 
+              color: #2d3748; 
+            }
+            .cv-offer { 
+              background: #f7fafc; 
+              padding: 20px; 
+              border-radius: 6px; 
+              text-align: center; 
+              border: 1px solid #e2e8f0; 
+            }
+            .cv-offer h3 { 
+              margin: 0 0 8px 0; 
+              font-size: 16px; 
+              font-weight: 600; 
+              color: #2d3748; 
+            }
+            .cv-offer p { 
+              margin: 0 0 16px 0; 
+              font-size: 14px; 
+              color: #4a5568; 
+            }
+            .cv-button { 
+              display: inline-block; 
+              background: #2d3748; 
+              color: white; 
+              text-decoration: none; 
+              padding: 10px 18px; 
+              border-radius: 5px; 
+              font-weight: 500; 
+              font-size: 14px; 
+              transition: background-color 0.2s ease; 
+            }
+            .cv-button:hover { 
+              background: #4a5568; 
+            }
+            .footer { 
+              background: #f7fafc; 
+              padding: 20px 24px; 
+              text-align: center; 
+              border-top: 1px solid #e2e8f0; 
+            }
+            .footer-text { 
+              color: #718096; 
+              font-size: 13px; 
+              margin-bottom: 8px; 
+            }
+            .footer-subtext { 
+              color: #a0aec0; 
+              font-size: 12px; 
+            }
+            @media (max-width: 600px) {
+              body { padding: 10px; }
+              .container { margin: 0; border-radius: 6px; }
+              .header, .content, .footer { padding: 20px; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>New Ofgem Update</h1>
+              <p>Tomato Energy updates delivered to your inbox</p>
+            </div>
+            
+            <div class="content">
+              <div class="publication-title">${publication.title}</div>
+              
+              <div class="publication-meta">
+                <div class="meta-item">
+                  <span class="meta-label">Published</span>
+                  <span>${publication.date}</span>
+                </div>
+                <div class="meta-item">
+                  <span class="meta-label">Type</span>
+                  <span>Publication</span>
+                </div>
+              </div>
+              
+              <a href="${publication.link}" class="cta-button" target="_blank">
+                Read Publication
+              </a>
+              
+              <div class="divider"></div>
+              
+              <div class="cv-offer">
+                <h3>Got Laid Off? 😜</h3>
+                <p>Get your CV reviewed by an expert</p>
+                <a href="https://www.shazpay.link/pay/okXVhiSmdG" class="cv-button" target="_blank">
+                  Get Expert Review
+                </a>
+              </div>
+            </div>
+            
+            <div class="footer">
+              <div class="footer-text">
+                Automated notification from Ofgem Watch
+              </div>
+              <div class="footer-subtext">
+                Powered by <a href="https://www.shazpay.link" target="_blank" style="color: #2d3748; text-decoration: none;">Shazpay</a>
+              </div>
+            </div>
+          </div>
+        </body>
+        </html>
       `,
       text: `New Ofgem Publication\n\nTitle: ${publication.title}\nPublished: ${publication.date}\nLink: ${publication.link}\n\n---\nAutomated notification from Ofgem Monitor`
     });
