@@ -2,8 +2,8 @@
  * Ofgem Publication Monitor
  * 
  * Monitors the Ofgem website for new publications and sends email notifications
- * when new content is detected. Uses web scraping to check the latest publication
- * and maintains state to avoid duplicate notifications.
+ * when new content is detected. Uses the API endpoint as primary method with
+ * web scraping as fallback. Maintains state to avoid duplicate notifications.
  * 
  * Requirements:
  * - Node.js with puppeteer, resend packages
@@ -15,7 +15,7 @@
  * Run: node ofgem-poll.js
  * 
  * @author Muhammad Hamza
- * @version 1.0.0
+ * @version 1.1.0
  */
 
 require('dotenv').config();
@@ -25,11 +25,15 @@ const puppeteer = require('puppeteer');
 
 // Configuration
 const CONFIG = {
+  apiUrl: 'https://www.ofgem.gov.uk/api/listing/4044?sort%5Bfield_published%5D%5Bpath%5D=field_published&sort%5Bfield_published%5D%5Bdirection%5D=desc',
   baseUrl: 'https://www.ofgem.gov.uk/search?sort=field_published&direction=desc',
   pollInterval: 5 * 60 * 1000, // 5 minutes
   stateFile: 'last_ofgem_publication.json',
   browserTimeout: 30000,
-  selectorTimeout: 10000
+  selectorTimeout: 10000,
+  apiTimeout: 10000,
+  rateLimitDelay: 2000, // 2 seconds between API calls
+  maxRetries: 3
 };
 
 const ENV = {
@@ -69,10 +73,109 @@ const saveState = (data) => {
 };
 
 /**
- * Fetches the latest publication from Ofgem website
+ * Parses publication details from HTML markup
+ * @param {string} markup - HTML markup string
+ * @returns {Object|null} Publication object or null if parsing fails
+ */
+const parsePublicationFromMarkup = (markup) => {
+  try {
+    // Decode HTML entities
+    const decodedMarkup = markup
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#039;/g, "'");
+    
+    // Extract title from h3 tag
+    const titleMatch = decodedMarkup.match(/<h3[^>]*>.*?<span[^>]*>.*?<span[^>]*>([^<]+)<\/span>/s);
+    const title = titleMatch ? titleMatch[1].trim() : null;
+    
+    // Extract link from href attribute
+    const linkMatch = decodedMarkup.match(/href="([^"]+)"/);
+    const link = linkMatch ? `https://www.ofgem.gov.uk${linkMatch[1]}` : null;
+    
+    // Extract date from time tag
+    const dateMatch = decodedMarkup.match(/<time[^>]*datetime="([^"]+)"[^>]*>([^<]+)<\/time>/);
+    const date = dateMatch ? dateMatch[2].trim() : 'Unknown';
+    
+    if (!title || !link) {
+      return null;
+    }
+    
+    return { title, link, date };
+    
+  } catch (error) {
+    console.log(`⚠️  Failed to parse markup: ${error.message}`);
+    return null;
+  }
+};
+
+/**
+ * Fetches the latest publication using the API endpoint
  * @returns {Promise<Object|null>} Publication object or null if failed
  */
-const fetchLatestPublication = async () => {
+const fetchLatestPublicationViaAPI = async () => {
+  try {
+    console.log('🔌 Attempting to fetch via API...');
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), CONFIG.apiTimeout);
+    
+    const response = await fetch(CONFIG.apiUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'Ofgem-Monitor/1.1.0'
+      },
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) {
+      throw new Error(`API responded with status: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (!data || !data.items || !Array.isArray(data.items) || data.items.length === 0) {
+      throw new Error('Invalid API response structure - missing items array');
+    }
+    
+    const latestPublication = data.items[0];
+    
+    if (!latestPublication.markup) {
+      throw new Error('Publication markup is missing');
+    }
+    
+    // Parse HTML content from the markup field to extract publication details
+    const publication = parsePublicationFromMarkup(latestPublication.markup);
+    
+    if (!publication) {
+      throw new Error('Failed to parse publication data from markup');
+    }
+    
+    console.log('✅ API fetch successful');
+    return publication;
+    
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      console.log('⏰ API request timed out');
+    } else {
+      console.log(`⚠️  API fetch failed: ${error.message}`);
+    }
+    return null;
+  }
+};
+
+/**
+ * Fetches the latest publication from Ofgem website using web scraping (fallback)
+ * @returns {Promise<Object|null>} Publication object or null if failed
+ */
+const fetchLatestPublicationViaScraping = async () => {
+  console.log('🕷️  Falling back to web scraping...');
+  
   const browser = await puppeteer.launch({ 
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox']
@@ -101,14 +204,51 @@ const fetchLatestPublication = async () => {
       return title && link ? { title, link, date: date || 'Unknown' } : null;
     });
 
+    if (publication) {
+      console.log('✅ Web scraping fallback successful');
+    }
+    
     return publication;
     
   } catch (error) {
-    console.error('❌ Failed to fetch publication:', error.message);
+    console.error('❌ Web scraping fallback failed:', error.message);
     return null;
   } finally {
     await browser.close();
   }
+};
+
+/**
+ * Fetches the latest publication with fallback strategy
+ * @returns {Promise<Object|null>} Publication object or null if all methods failed
+ */
+const fetchLatestPublication = async () => {
+  // Try API first
+  let publication = await fetchLatestPublicationViaAPI();
+  
+  if (!publication) {
+    // Add delay to respect rate limiting
+    await new Promise(resolve => setTimeout(resolve, CONFIG.rateLimitDelay));
+    
+    // Try API again with retry
+    for (let attempt = 1; attempt <= CONFIG.maxRetries; attempt++) {
+      console.log(`🔄 API retry attempt ${attempt}/${CONFIG.maxRetries}`);
+      publication = await fetchLatestPublicationViaAPI();
+      
+      if (publication) break;
+      
+      if (attempt < CONFIG.maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, CONFIG.rateLimitDelay * attempt));
+      }
+    }
+  }
+  
+  // If API still fails, use web scraping fallback
+  if (!publication) {
+    publication = await fetchLatestPublicationViaScraping();
+  }
+  
+  return publication;
 };
 
 /**
