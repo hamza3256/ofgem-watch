@@ -23,7 +23,7 @@ Monitors the Ofgem website for new publications and sends email notifications wh
 2. **Create `.env` file**
    ```env
    RESEND_API_KEY=your_resend_api_key
-   NOTIFY_EMAIL=recipient@example.com
+   NOTIFY_EMAILS=recipient@example.com
    SENDER_EMAIL=monitor@yourdomain.com
    ```
 
