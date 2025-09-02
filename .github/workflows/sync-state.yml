@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   sync-state:
-    if: ${{ !contains(github.event.head_commit.message, '[sync-state]') }}
+    if: ${{ !contains(github.event.head_commit.message, '[synced]') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -38,16 +38,17 @@ jobs:
         run: |
           node ofgem-poll.js --sync-state
 
-      - name: Commit state if changed
+      - name: Amend commit with synced state (single-commit flow)
         run: |
           if ! git diff --quiet -- last_ofgem_publication.json; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add last_ofgem_publication.json
-            git commit -m "[sync-state] Update latest publication [skip ci]"
-            git push
-            echo "Pushed sync-state commit: $(git rev-parse HEAD)"
+            msg="$(git log -1 --pretty=%B)"
+            git commit --amend -m "$msg [synced][skip ci]"
+            git push --force-with-lease
+            echo "Amended and force-pushed: $(git rev-parse HEAD)"
           else
-            echo "No state change; skipping commit."
+            echo "No state change; nothing to amend."
           fi
 
