@@ -9,6 +9,3 @@ yarn-debug.log*
 # Logs
 logs/
 *.log
-
-# State file
-last_ofgem_publication.json
