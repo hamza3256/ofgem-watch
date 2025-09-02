@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+set -euo pipefail
+
+# Skip in CI
+if [ "${CI:-}" = "true" ]; then
+  exit 0
+fi
+
+# Sync state locally (no emails)
+node ofgem-poll.js --sync-state
+
+# If state changed, stage and amend current commit
+if ! git diff --quiet -- last_ofgem_publication.json; then
+  git add last_ofgem_publication.json
+  git commit --amend --no-edit
+fi
+
+# Continue push
+exit 0

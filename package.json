@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "ofgem-poll.js",
   "scripts": {
-    "start": "node ofgem-poll.js"
+    "start": "node ofgem-poll.js",
+    "prepare": "husky"
   },
   "dependencies": {
     "axios": "^1.11.0",
@@ -12,5 +13,8 @@
     "node-fetch": "^2.7.0",
     "puppeteer": "^24.17.1",
     "resend": "^6.0.2"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7"
   }
 }
