@@ -301,6 +301,27 @@ const fetchLatestPublication = async () => {
 };
 
 /**
+ * Sync the local state file to the newest available publication without sending emails
+ * Used for CI/CD or pre-deploy to avoid triggering notifications on deploy
+ */
+const syncStateToLatest = async () => {
+  try {
+    console.log('🗂️  Syncing state to latest publication (no emails)...');
+    const publications = await fetchRecentPublicationsUntilToday();
+    if (!publications || publications.length === 0) {
+      console.log('⚠️  Could not fetch publications to sync state');
+      process.exit(2);
+    }
+    saveState(publications[0]);
+    console.log('✅ State synced to:', publications[0].title);
+    process.exit(0);
+  } catch (e) {
+    console.error('❌ State sync failed:', e.message);
+    process.exit(1);
+  }
+};
+
+/**
  * Sends email notification for new publication to multiple recipients
  * @param {Object} publication - Publication details
  */
@@ -684,26 +705,32 @@ const pollForUpdates = async () => {
 };
 
 // Application startup
-console.log('🚀 Starting Ofgem Watch');
-console.log(`📧 Notifications will be sent to: ${ENV.notifyEmails.join(', ')}`);
-console.log(`⏱️  Polling interval: ${CONFIG.pollInterval / 1000} seconds`);
-console.log('─'.repeat(50));
+if (process.argv.includes('--sync-state')) {
+  (async () => { await syncStateToLatest(); })();
+} else {
+  console.log('🚀 Starting Ofgem Watch');
+  console.log(`📧 Notifications will be sent to: ${ENV.notifyEmails.join(', ')}`);
+  console.log(`⏱️  Polling interval: ${CONFIG.pollInterval / 1000} seconds`);
+  console.log('─'.repeat(50));
 
-// Initial check
-pollForUpdates();
+  // Initial check
+  pollForUpdates();
 
-// Set up recurring polling
-const pollInterval = setInterval(pollForUpdates, CONFIG.pollInterval);
+  // Set up recurring polling
+  const pollInterval = setInterval(pollForUpdates, CONFIG.pollInterval);
 
-// Graceful shutdown handling
-const shutdown = () => {
-  console.log('\n🛑 Shutting down Ofgem Watch...');
-  clearInterval(pollInterval);
-  process.exit(0);
-};
+  // Graceful shutdown handling
+  const shutdown = () => {
+    console.log('\n🛑 Shutting down Ofgem Watch...');
+    clearInterval(pollInterval);
+    process.exit(0);
+  };
 
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+}
+
+// (signal handlers bound inside normal run branch)
 
 // Handle uncaught exceptions
 process.on('uncaughtException', (error) => {
