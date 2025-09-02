@@ -15,7 +15,7 @@
  * Run: node ofgem-poll.js
  * 
  * @author Muhammad Hamza
- * @version 1.1.0
+ * @version 1.2.0
  */
 
 require('dotenv').config();
