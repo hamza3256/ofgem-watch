@@ -260,7 +260,7 @@ const sendNotification = async (publication) => {
     const { data, error } = await resend.emails.send({
       from: ENV.senderEmail,
       to: ENV.notifyEmails,
-      subject: '📢 New Ofgem Publication Available',
+      subject: '📢 New Ofgem Update! 👁️👃👁️',
       html: `
         <!DOCTYPE html>
         <html>
