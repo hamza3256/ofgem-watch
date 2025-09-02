@@ -1,5 +1,5 @@
 /**
- * Ofgem Publication Monitor
+ * Ofgem Watch
  * 
  * Monitors the Ofgem website for new publications and sends email notifications
  * when new content is detected. Uses the API endpoint as primary method with
@@ -524,7 +524,7 @@ const sendNotification = async (publication) => {
         </body>
         </html>
       `,
-      text: `New Ofgem Publication\n\nTitle: ${publication.title}\nPublished: ${publication.date}\nLink: ${publication.link}\n\n---\nAutomated notification from Ofgem Monitor`
+      text: `New Ofgem Publication\n\nTitle: ${publication.title}\nPublished: ${publication.date}\nLink: ${publication.link}\n\n---\nAutomated notification from Ofgem Watch`
     });
 
     if (error) {
@@ -535,6 +535,81 @@ const sendNotification = async (publication) => {
     
   } catch (error) {
     console.error('❌ Email notification failed:', error.message);
+  }
+};
+
+/**
+ * Sends a single consolidated email with multiple publications
+ * @param {Array<{title:string,link:string,date:string}>} publications
+ */
+const sendBatchNotification = async (publications) => {
+  try {
+    const itemsHtml = publications.map((p) => `
+      <div style="padding:16px;border:1px solid #e2e8f0;border-radius:8px;margin:12px 0;background:#ffffff">
+        <div style="font-weight:600;color:#2d3748;margin-bottom:8px;line-height:1.5">${p.title}</div>
+        <div style="color:#4a5568;font-size:14px;margin-bottom:12px">Published: ${p.date}</div>
+        <a href="${p.link}" target="_blank" style="display:inline-block;background:#2d3748;color:#fff;text-decoration:none;padding:10px 16px;border-radius:6px;font-weight:500;font-size:14px">Read Publication</a>
+      </div>
+    `).join('');
+
+    const { data, error } = await resend.emails.send({
+      from: ENV.senderEmail,
+      to: ENV.notifyEmails,
+      subject: `📢 ${publications.length} Ofgem Update${publications.length > 1 ? 's' : ''} Detected`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Ofgem Updates</title>
+          <style>
+            body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; line-height:1.6; color:#2d3748; margin:0; padding:20px; background:#f7fafc; }
+            .container { max-width:600px; margin:0 auto; background:#fff; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,.1); overflow:hidden; }
+            .header { background:#2d3748; color:#fff; padding:24px; text-align:center; }
+            .header h1 { margin:0; font-size:20px; font-weight:600; letter-spacing:-0.02em; }
+            .content { padding:24px; }
+            .item { padding:16px; border:1px solid #e2e8f0; border-radius:8px; margin:12px 0; background:#ffffff; }
+            .title { font-weight:600; color:#2d3748; margin-bottom:8px; line-height:1.5; }
+            .meta { color:#4a5568; font-size:14px; margin-bottom:12px; }
+            .btn { display:inline-block; background:#2d3748; color:#fff; text-decoration:none; padding:10px 16px; border-radius:6px; font-weight:500; font-size:14px; }
+            .divider { height:1px; background:#e2e8f0; margin:24px 0; }
+            .cv-offer { background:#f7fafc; padding:20px; border-radius:6px; text-align:center; border:1px solid #e2e8f0; }
+            .cv-offer h3 { margin:0 0 8px 0; font-size:16px; font-weight:600; color:#2d3748; }
+            .cv-offer p { margin:0 0 16px 0; font-size:14px; color:#4a5568; }
+            .cv-button { display:inline-block; background:linear-gradient(45deg,#667eea,#764ba2,#f093fb,#f5576c,#4facfe,#00f2fe); background-size:300% 300%; color:#fff; text-decoration:none; padding:10px 18px; border-radius:5px; font-weight:500; font-size:14px; transition:all .3s ease; animation:shimmer 3s ease-in-out infinite; box-shadow:0 4px 15px rgba(102,126,234,.3); }
+            .cv-button:hover { transform:translateY(-2px); box-shadow:0 6px 20px rgba(102,126,234,.4); animation:shimmer 1.5s ease-in-out infinite; }
+            @keyframes shimmer { 0%{background-position:0% 50%} 50%{background-position:100% 50%} 100%{background-position:0% 50%} }
+            .footer { background:#f7fafc; padding:16px; text-align:center; border-top:1px solid #e2e8f0; font-size:12px; color:#718096; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header"><h1>${publications.length} new Ofgem update${publications.length > 1 ? 's' : ''}</h1></div>
+            <div class="content">
+              ${itemsHtml}
+              <div class="divider"></div>
+              <div class="cv-offer">
+                <h3>Need a boost?</h3>
+                <p>Quick motivation to power through your day</p>
+                <a href="https://www.youtube.com/watch?v=dQw4w9WgXcQ" class="cv-button" target="_blank">Get Motivated</a>
+              </div>
+            </div>
+            <div class="footer">Automated notification from Ofgem Watch • <a href="https://github.com/hamza3256/ofgem-watch" target="_blank" style="color:#2d3748;text-decoration:none;font-weight:600">GitHub</a></div>
+          </div>
+        </body>
+        </html>
+      `,
+      text: publications.map((p,i)=>`${i+1}. ${p.title}\nPublished: ${p.date}\n${p.link}`).join('\n\n')
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    console.log(`✅ Batch email sent with ${publications.length} publication(s)`);
+  } catch (error) {
+    console.error('❌ Batch email failed:', error.message);
   }
 };
 
@@ -590,23 +665,18 @@ const pollForUpdates = async () => {
     const todaysUnseen = unseen.filter(p => isToday(p.isoDate));
     const candidates = todaysUnseen.length > 0 ? todaysUnseen : unseen;
 
-    let notified = false;
-    for (const pub of candidates) {
-      if (matchKeyword(pub.title)) {
-        console.log('🎯 Target keyword detected - sending notification for:', pub.title);
-        await sendNotification(pub);
-        notified = true;
-      } else {
-        console.log('🚫 Skipping (no target keyword):', pub.title);
-      }
+    const matched = candidates.filter(p => matchKeyword(p.title));
+    if (matched.length > 0) {
+      console.log(`🎯 ${matched.length} publication(s) matched keywords; sending batch email`);
+      await sendBatchNotification(matched);
+    } else {
+      console.log('ℹ️  New items found but no keyword match among candidates');
     }
 
     // Save newest seen (top item from fetched list)
     saveState(publications[0]);
 
-    if (!notified) {
-      console.log('ℹ️  New items found but no keyword match (state updated)');
-    }
+    console.log('✅ State updated to the newest fetched item');
     
   } catch (error) {
     console.error('❌ Polling cycle failed:', error.message);
@@ -614,7 +684,7 @@ const pollForUpdates = async () => {
 };
 
 // Application startup
-console.log('🚀 Starting Ofgem Publication Monitor');
+console.log('🚀 Starting Ofgem Watch');
 console.log(`📧 Notifications will be sent to: ${ENV.notifyEmails.join(', ')}`);
 console.log(`⏱️  Polling interval: ${CONFIG.pollInterval / 1000} seconds`);
 console.log('─'.repeat(50));
@@ -627,7 +697,7 @@ const pollInterval = setInterval(pollForUpdates, CONFIG.pollInterval);
 
 // Graceful shutdown handling
 const shutdown = () => {
-  console.log('\n🛑 Shutting down Ofgem Monitor...');
+  console.log('\n🛑 Shutting down Ofgem Watch...');
   clearInterval(pollInterval);
   process.exit(0);
 };
