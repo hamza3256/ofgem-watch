@@ -97,13 +97,14 @@ const parsePublicationFromMarkup = (markup) => {
     
     // Extract date from time tag
     const dateMatch = decodedMarkup.match(/<time[^>]*datetime="([^"]+)"[^>]*>([^<]+)<\/time>/);
+    const isoDate = dateMatch ? dateMatch[1].trim() : null;
     const date = dateMatch ? dateMatch[2].trim() : 'Unknown';
     
     if (!title || !link) {
       return null;
     }
     
-    return { title, link, date };
+    return { title, link, date, isoDate };
     
   } catch (error) {
     console.log(`⚠️  Failed to parse markup: ${error.message}`);
@@ -143,21 +144,22 @@ const fetchLatestPublicationViaAPI = async () => {
       throw new Error('Invalid API response structure - missing items array');
     }
     
-    const latestPublication = data.items[0];
-    
-    if (!latestPublication.markup) {
-      throw new Error('Publication markup is missing');
+    // Map items -> publications by parsing markup
+    const publications = [];
+    for (const item of data.items) {
+      if (!item || !item.markup) continue;
+      const parsed = parsePublicationFromMarkup(item.markup);
+      if (parsed) publications.push(parsed);
+      if (publications.length >= 30) break; // limit processing
     }
-    
-    // Parse HTML content from the markup field to extract publication details
-    const publication = parsePublicationFromMarkup(latestPublication.markup);
-    
-    if (!publication) {
-      throw new Error('Failed to parse publication data from markup');
+
+    if (publications.length === 0) {
+      throw new Error('Failed to parse any publications from API response');
     }
-    
+
     console.log('✅ API fetch successful');
-    return publication;
+    // Return the first (latest) but also attach the list for callers that need it
+    return publications[0];
     
   } catch (error) {
     if (error.name === 'AbortError') {
@@ -167,6 +169,53 @@ const fetchLatestPublicationViaAPI = async () => {
     }
     return null;
   }
+};
+
+/**
+ * Fetch recent publications via API with retry until today's date appears
+ * @returns {Promise<Array<{title:string,link:string,date:string,isoDate:string}>>}
+ */
+const fetchRecentPublicationsUntilToday = async () => {
+  const isToday = (iso) => {
+    if (!iso) return false;
+    const d = new Date(iso);
+    const now = new Date();
+    return d.getUTCFullYear() === now.getUTCFullYear() &&
+           d.getUTCMonth() === now.getUTCMonth() &&
+           d.getUTCDate() === now.getUTCDate();
+  };
+
+  for (let attempt = 0; attempt <= CONFIG.maxRetries; attempt++) {
+    // Single API fetch of items array
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), CONFIG.apiTimeout);
+    try {
+      const response = await fetch(CONFIG.apiUrl, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json', 'User-Agent': 'Ofgem-Monitor/1.1.0' },
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      if (!response.ok) throw new Error(`status ${response.status}`);
+      const data = await response.json();
+      if (!data || !Array.isArray(data.items)) throw new Error('bad items');
+      const pubs = [];
+      for (const item of data.items) {
+        if (!item?.markup) continue;
+        const parsed = parsePublicationFromMarkup(item.markup);
+        if (parsed) pubs.push(parsed);
+        if (pubs.length >= 50) break;
+      }
+      const hasToday = pubs.some(p => isToday(p.isoDate));
+      if (hasToday || attempt === CONFIG.maxRetries) return pubs;
+      await new Promise(r => setTimeout(r, CONFIG.rateLimitDelay * (attempt + 1)));
+    } catch (e) {
+      clearTimeout(timeoutId);
+      if (attempt === CONFIG.maxRetries) return [];
+      await new Promise(r => setTimeout(r, CONFIG.rateLimitDelay * (attempt + 1)));
+    }
+  }
+  return [];
 };
 
 /**
@@ -496,43 +545,67 @@ const pollForUpdates = async () => {
   console.log(`🔍 Checking for updates... [${new Date().toLocaleString('en-GB')}]`);
   
   try {
-    const latestPublication = await fetchLatestPublication();
+    // Fetch multiple and ensure we include today's items if present
+    const publications = await fetchRecentPublicationsUntilToday();
     
-    if (!latestPublication) {
+    if (!publications || publications.length === 0) {
       console.log('⚠️  No publication data retrieved');
       return;
     }
 
     const previousPublication = loadState();
-    const currentId = `${latestPublication.title}|${latestPublication.link}`;
     const previousId = previousPublication 
       ? `${previousPublication.title}|${previousPublication.link}` 
       : null;
 
-    if (currentId !== previousId) {
-      console.log('🆕 New publication detected:', latestPublication.title);
-      
-      // Check if any of the target keywords are in the title
-      const titleLower = latestPublication.title.toLowerCase();
-      const hasTomato = titleLower.includes('tomato');
-      const hasSenapt = titleLower.includes('senapt');
-      const hasLogicor = titleLower.includes('logicor');
-      
-      if (hasTomato || hasSenapt || hasLogicor) {
-        console.log('🎯 Target keyword detected - sending notification!');
-        if (hasTomato) console.log('🍅 Tomato found');
-        if (hasSenapt) console.log('🔍 Senapt found');
-        if (hasLogicor) console.log('🏢 Logicor found');
-        await sendNotification(latestPublication);
-        saveState(latestPublication);
-      } else {
-        console.log('🚫 No target keywords found - skipping notification');
-        console.log('📝 Publication:', latestPublication.title);
-        // Still save the state to avoid re-checking the same publication
-        saveState(latestPublication);
-      }
-    } else {
+    const isToday = (iso) => {
+      if (!iso) return false;
+      const d = new Date(iso);
+      const now = new Date();
+      return d.getUTCFullYear() === now.getUTCFullYear() &&
+             d.getUTCMonth() === now.getUTCMonth() &&
+             d.getUTCDate() === now.getUTCDate();
+    };
+
+    // Collect unseen publications until we hit previous
+    const unseen = [];
+    for (const pub of publications) {
+      const id = `${pub.title}|${pub.link}`;
+      if (id === previousId) break;
+      unseen.push(pub);
+    }
+
+    if (unseen.length === 0) {
       console.log('✨ No new publications');
+      return;
+    }
+
+    // Keyword filter
+    const matchKeyword = (title) => {
+      const t = title.toLowerCase();
+      return t.includes('tomato') || t.includes('senapt') || t.includes('logicor');
+    };
+
+    // Prefer today's items; if none, still update state to newest
+    const todaysUnseen = unseen.filter(p => isToday(p.isoDate));
+    const candidates = todaysUnseen.length > 0 ? todaysUnseen : unseen;
+
+    let notified = false;
+    for (const pub of candidates) {
+      if (matchKeyword(pub.title)) {
+        console.log('🎯 Target keyword detected - sending notification for:', pub.title);
+        await sendNotification(pub);
+        notified = true;
+      } else {
+        console.log('🚫 Skipping (no target keyword):', pub.title);
+      }
+    }
+
+    // Save newest seen (top item from fetched list)
+    saveState(publications[0]);
+
+    if (!notified) {
+      console.log('ℹ️  New items found but no keyword match (state updated)');
     }
     
   } catch (error) {
