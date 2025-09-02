@@ -37,6 +37,7 @@ jobs:
           SENDER_EMAIL: ${{ secrets.SENDER_EMAIL }}
           NOTIFY_EMAILS: ${{ secrets.NOTIFY_EMAILS }}
         run: |
+          set -euxo pipefail
           node ofgem-poll.js --sync-state
 
       # Deploy the synced working tree directly to Railway (no extra commit → single deployment)
@@ -46,13 +47,4 @@ jobs:
       - name: Deploy to Railway
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
-          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
-        run: |
-          if [ -z "$RAILWAY_TOKEN" ] || [ -z "$RAILWAY_PROJECT_ID" ] || [ -z "$RAILWAY_SERVICE_ID" ]; then
-            echo "Railway secrets not set; skipping deploy." && exit 0
-          fi
-          railway login --token "$RAILWAY_TOKEN"
-          railway use --project "$RAILWAY_PROJECT_ID" --service "$RAILWAY_SERVICE_ID"
-          railway up --service "$RAILWAY_SERVICE_ID"
-
+        run: railway up --service ${{ secrets.RAILWAY_SERVICE_ID }}
