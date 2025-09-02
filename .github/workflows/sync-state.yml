@@ -13,8 +13,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  sync-state:
-    if: ${{ !contains(github.event.head_commit.message, '[synced]') }}
+  sync-and-deploy:
+    # Single run per push; we don't amend or create extra commits to avoid extra deployments
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -38,17 +39,20 @@ jobs:
         run: |
           node ofgem-poll.js --sync-state
 
-      - name: Amend commit with synced state (single-commit flow)
+      # Deploy the synced working tree directly to Railway (no extra commit → single deployment)
+      - name: Install Railway CLI
+        run: npm i -g @railway/cli
+
+      - name: Deploy to Railway
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
         run: |
-          if ! git diff --quiet -- last_ofgem_publication.json; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add last_ofgem_publication.json
-            msg="$(git log -1 --pretty=%B)"
-            git commit --amend -m "$msg [synced][skip ci]"
-            git push --force-with-lease
-            echo "Amended and force-pushed: $(git rev-parse HEAD)"
-          else
-            echo "No state change; nothing to amend."
+          if [ -z "$RAILWAY_TOKEN" ] || [ -z "$RAILWAY_PROJECT_ID" ] || [ -z "$RAILWAY_SERVICE_ID" ]; then
+            echo "Railway secrets not set; skipping deploy." && exit 0
           fi
+          railway login --token "$RAILWAY_TOKEN"
+          railway use --project "$RAILWAY_PROJECT_ID" --service "$RAILWAY_SERVICE_ID"
+          railway up --service "$RAILWAY_SERVICE_ID"
 
