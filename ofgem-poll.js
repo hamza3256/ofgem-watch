@@ -15,7 +15,7 @@
  * Run: node ofgem-poll.js
  * 
  * @author Muhammad Hamza
- * @version 1.2.0
+ * @version 1.3.0
  */
 
 require('dotenv').config();
@@ -33,7 +33,8 @@ const CONFIG = {
   selectorTimeout: 10000,
   apiTimeout: 10000,
   rateLimitDelay: 2000, // 2 seconds between API calls
-  maxRetries: 3
+  maxRetries: 3,
+  maxRunMinutes: Number(process.env.MAX_RUN_MINUTES || 60)
 };
 
 const ENV = {
@@ -51,6 +52,18 @@ if (!ENV.resendApiKey || ENV.notifyEmails.length === 0 || !ENV.senderEmail) {
 }
 
 const resend = new Resend(ENV.resendApiKey);
+
+// Global handles to allow clean shutdown from anywhere
+let pollIntervalHandle = null;
+let maxRuntimeTimerHandle = null;
+
+// Graceful shutdown that clears timers/intervals and exits
+const shutdown = () => {
+  console.log('\n🛑 Shutting down Ofgem Watch...');
+  if (pollIntervalHandle) clearInterval(pollIntervalHandle);
+  if (maxRuntimeTimerHandle) clearTimeout(maxRuntimeTimerHandle);
+  process.exit(0);
+};
 
 // State management utilities
 const loadState = () => {
@@ -479,14 +492,15 @@ if (process.argv.includes('--sync-state')) {
   pollForUpdates();
 
   // Set up recurring polling
-  const pollInterval = setInterval(pollForUpdates, CONFIG.pollInterval);
+  pollIntervalHandle = setInterval(pollForUpdates, CONFIG.pollInterval);
 
-  // Graceful shutdown handling
-  const shutdown = () => {
-    console.log('\n🛑 Shutting down Ofgem Watch...');
-    clearInterval(pollInterval);
-    process.exit(0);
-  };
+  // Set up auto-shutdown after cron job run (set in railway)
+  const maxRunMs = Math.max(1, CONFIG.maxRunMinutes) * 60 * 1000;
+  console.log(`⏳ Starting cron job; running for ${CONFIG.maxRunMinutes} minute(s)`);
+  maxRuntimeTimerHandle = setTimeout(() => {
+    console.log('⏰ End of cron job. Exiting...');
+    shutdown();
+  }, maxRunMs);
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);

@@ -32,9 +32,18 @@ Monitors the Ofgem website for new publications and sends email notifications wh
    node ofgem-poll.js
    ```
 
+   Or limit each run to a fixed duration (minutes) using an env variable:
+   ```bash
+   MAX_RUN_MINUTES=60 node ofgem-poll.js
+   ```
+
 ## Configuration
 
 Edit `CONFIG` in `ofgem-poll.js` to change polling interval or state file name.
+
+- `MAX_RUN_MINUTES` (env): optional, defaults to 60. The process will auto-exit
+  after this many minutes. Useful when running via a cron/scheduled job
+  (e.g., Railway cron `1 11 * * *`).
 
 ## Troubleshooting
 
