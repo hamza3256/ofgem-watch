@@ -335,7 +335,7 @@ const syncStateToLatest = async () => {
 };
 
 /**
- * Sends a single consolidated email with multiple publications
+ * Sends individual emails to each recipient with multiple publications
  * @param {Array<{title:string,link:string,date:string}>} publications
  */
 const sendBatchNotification = async (publications) => {
@@ -348,9 +348,7 @@ const sendBatchNotification = async (publications) => {
       </div>
     `).join('');
 
-    const { data, error } = await resend.emails.send({
-      from: ENV.senderEmail,
-      to: ENV.notifyEmails,
+    const emailContent = {
       subject: `📢 ${publications.length} Ofgem Update${publications.length > 1 ? 's' : ''} Detected`,
       html: `
         <!DOCTYPE html>
@@ -397,13 +395,43 @@ const sendBatchNotification = async (publications) => {
         </html>
       `,
       text: publications.map((p,i)=>`${i+1}. ${p.title}\nPublished: ${p.date}\n${p.link}`).join('\n\n')
+    };
+
+    // Send individual emails to each recipient
+    const emailPromises = ENV.notifyEmails.map(async (email) => {
+      try {
+        const { data, error } = await resend.emails.send({
+          from: ENV.senderEmail,
+          to: [email], // Send to individual recipient only
+          subject: emailContent.subject,
+          html: emailContent.html,
+          text: emailContent.text
+        });
+
+        if (error) {
+          throw new Error(error.message);
+        }
+
+        console.log(`✅ Email sent to ${email}`);
+        return { success: true, email };
+      } catch (error) {
+        console.error(`❌ Failed to send email to ${email}:`, error.message);
+        return { success: false, email, error: error.message };
+      }
     });
 
-    if (error) {
-      throw new Error(error.message);
+    // Wait for all emails to be sent
+    const results = await Promise.all(emailPromises);
+    const successful = results.filter(r => r.success).length;
+    const failed = results.filter(r => !r.success).length;
+
+    console.log(`📧 Email summary: ${successful} sent successfully, ${failed} failed`);
+    
+    if (failed > 0) {
+      const failedEmails = results.filter(r => !r.success).map(r => r.email).join(', ');
+      console.error(`❌ Failed emails: ${failedEmails}`);
     }
 
-    console.log(`✅ Batch email sent with ${publications.length} publication(s)`);
   } catch (error) {
     console.error('❌ Batch email failed:', error.message);
   }
